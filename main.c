@@ -41,7 +41,7 @@ typedef char               byte;
 
 #define u3_none (noun*)0xffffffffffffffff
 #define ur_min(a, b)   ( ((a) < (b)) ? (a) : (b) )
-#define ur_tz32 __builtin_ctz
+#define ur_tz32 osctz
 #define ur_tz8  ur_tz32
 #define ur_mask_3(a)   (a & 0x7)
 
@@ -113,10 +113,11 @@ typedef struct cueframe {
 
 void osfail(void);
 b32  oswrite(i32, u8 *, i32);
-i32  osread(size, u8 *, i32);
+i32  osreadstdin(u8 *, i32);
 void *osreserve(size);
 i32  oscommit(void *, size);
 void *oscopy(void *, void *, size);
+i32  osctz(u32);
 
 b32 iscell(noun* n) {
   return (b32)((n->val & (1ULL << 63)) > 0);
@@ -128,7 +129,6 @@ void oom(void) {
   osfail();
 }
 
-__attribute((malloc))
 byte *alloc(arena *a, size objsize, size align, size count) {
   size avail = a->com - a->beg;
   size padding = -(uptr)a->beg & (align - 1);
@@ -811,7 +811,7 @@ i32 cuemain() {
   size out = 0;
   size len = 0;
   u8 *d = new(&a, u8, 1<<16);
-  while ((out = osread(0, d + len, 1<<16)) > 0){
+  while ((out = osreadstdin(d + len, 1<<16)) > 0){
     len += out;
     new(&a, u8, 1<<16);
   }
@@ -826,34 +826,43 @@ i32 cuemain() {
 }
 
 #ifdef _WIN32
+
+#pragma comment(linker, "/subsystem:console")
+#pragma comment(lib, "kernel32.lib")
+
 typedef struct {i32 dummy;} *handle;
 
 #define W32(r) __declspec(dllimport) r __stdcall
 
 W32(void *) GetStdHandle(i32);
 W32(i32)    ReadFile(handle, u8 *, i32, u32 *, void *);
+W32(b32)    WriteFile(handle, u8 *, i32, u32 *, void *);
 W32(void)   ExitProcess(i32);
-W32(void)   CopyMemory(void *, void *, size);
 W32(void *) VirtualAlloc(void *, usize, i32, i32);
+W32(b32)    SetConsoleMode(handle, u32);
+W32(b32)    GetConsoleMode(handle, void *);
 
 void osfail(void){
   ExitProcess(1);
 }
 
-i32 osread(size fd, u8 *buf, i32 cap) {
+i32 osreadstdin(u8 *buf, i32 cap) {
+  handle stdin = GetStdHandle(-10);
   u32 len;
-  ReadFile((handle)fd, buf, cap, &len, 0);
+  ReadFile(stdin, buf, cap, &len, 0);
   return len;
 }
 
-b32 oswrite(i32 fd, u8 *buf, i32 len) {
+i32 oswrite(i32 fd, u8 *buf, i32 len) {
   handle stdout = GetStdHandle(-10 - fd);
-  u32 dummy;
-  return WriteFile(stdout, buf, len, &dummy, 0);
+  u32 written;
+  WriteFile(stdout, buf, len, &written, 0);
+  return (i32)written;
 }
 
 void *oscopy(void *dst, void *src, size len) {
-  CopyMemory(dst, src, len);
+  assert(src >= dst + len || src + size <= len); // only for non-overlapping ranges
+  __movsb(dst, src, len);
   return dst;
 }
 
@@ -871,8 +880,16 @@ void *osreserve(size len) {
 i32 oscommit(void *base, size len) {
   #define MEM_COMMIT 0x1000
   #define PAGE_READWRITE 0x04
-  usize res = VirtualAlloc(base, len, MEM_COMMIT, PAGE_READWRITE);
+  void *res = VirtualAlloc(base, len, MEM_COMMIT, PAGE_READWRITE);
   return res == 0 ? -1 : 0;
+}
+
+i32 osctz(u32 x) {
+  i32 trailing = 0;
+  if (_BitScanForward(&trailing, x)) {
+      return trailing;
+  }
+  return 32;
 }
 
 void mainCRTStartup(void) {
@@ -884,7 +901,7 @@ void mainCRTStartup(void) {
 
 size write(i32, void *, size);
 size read(i32, void *, size);
-void _exit(i32) __attribute__((noreturn));
+void _exit(i32);
 void *mmap(void *, size, i32, i32, i32, size);
 i32  mprotect(void *, size, i32);
 
@@ -892,11 +909,11 @@ void osfail(void) {
   _exit(1);
 }
 
-i32 osread(size fd, u8 *buf, i32 cap) {
-  return (i32)read((i32)fd, buf, cap);
+i32 osreadstdin(u8 *buf, i32 cap) {
+  return (i32)read(0, buf, cap);
 }
 
-b32 oswrite(i32 fd, u8 *buf, i32 len) {
+i32 oswrite(i32 fd, u8 *buf, i32 len) {
   for (i32 off = 0; off < len;) {
     i32 r = (i32)write(fd, buf+off, len-off);
     if (r < 1) {
@@ -934,6 +951,10 @@ void *osreserve(size len) {
     oom();
   }
   return res;
+}
+
+i32 osctz(u32 x) {
+  return __builtin_ctz(x);
 }
 
 int main() {

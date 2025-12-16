@@ -122,7 +122,6 @@ b32 iscell(noun* n) {
   return (b32)((n->val & (1ULL << 63)) > 0);
 }
 
-
 void oom(void) {
   static const u8 msg[] = "out of memory\n";
   oswrite(2, (u8 *)msg, lengthof(msg));
@@ -826,7 +825,62 @@ i32 cuemain() {
   return 0;
 }
 
-#ifndef _WIN32
+#ifdef _WIN32
+typedef struct {i32 dummy;} *handle;
+
+#define W32(r) __declspec(dllimport) r __stdcall
+
+W32(void *) GetStdHandle(i32);
+W32(i32)    ReadFile(handle, u8 *, i32, u32 *, void *);
+W32(void)   ExitProcess(i32);
+W32(void)   CopyMemory(void *, void *, size);
+W32(void *) VirtualAlloc(void *, usize, i32, i32);
+
+void osfail(void){
+  ExitProcess(1);
+}
+
+i32 osread(size fd, u8 *buf, i32 cap) {
+  u32 len;
+  ReadFile((handle)fd, buf, cap, &len, 0);
+  return len;
+}
+
+b32 oswrite(i32 fd, u8 *buf, i32 len) {
+  handle stdout = GetStdHandle(-10 - fd);
+  u32 dummy;
+  return WriteFile(stdout, buf, len, &dummy, 0);
+}
+
+void *oscopy(void *dst, void *src, size len) {
+  CopyMemory(dst, src, len);
+  return dst;
+}
+
+void *osreserve(size len) {
+  #define MEM_RESERVE 0x2000
+  #define PAGE_NOACCESS 0x01
+
+  void *res = VirtualAlloc(0, len, MEM_RESERVE, PAGE_NOACCESS);
+  if (res == 0) {
+    oom();
+  }
+  return res;
+}
+
+i32 oscommit(void *base, size len) {
+  #define MEM_COMMIT 0x1000
+  #define PAGE_READWRITE 0x04
+  usize res = VirtualAlloc(base, len, MEM_COMMIT, PAGE_READWRITE);
+  return res == 0 ? -1 : 0;
+}
+
+void mainCRTStartup(void) {
+  i32 r = cuemain();
+  ExitProcess(r);
+}
+
+#else
 
 size write(i32, void *, size);
 size read(i32, void *, size);
@@ -885,8 +939,5 @@ void *osreserve(size len) {
 int main() {
   return cuemain();
 }
-
-#else
-#error "Cue only on *nix for now"
 
 #endif

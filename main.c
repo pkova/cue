@@ -195,12 +195,17 @@ void append(bufout *b, s8 src) {
   }
 }
 
-void appendhex(bufout *b, u8 c) {
+void appendhex(bufout *b, u8 c, b32 leading) {
   s8 digits = S("0123456789abcdef");
   u8 out[2];
   out[0] = digits.buf[(c&0xf0)>>4];
   out[1] = digits.buf[c&0x0f];
-  s8 s = {.buf = out, .len = 2};
+  s8 s;
+  if (leading && out[0] == '0') {
+    s = (s8){.buf = out+1, .len = 1};
+  } else {
+    s = (s8){.buf = out, .len = 2};
+  }
   append(b, s);
 }
 
@@ -211,7 +216,7 @@ void appendhexbuf(bufout *b, u8* d, size len) {
     if ((j % 2 == 0) && (i < len-1)) {
       append(b, S("."));
     }
-    appendhex(b, d[i]);
+    appendhex(b, d[i], i == len-1);
   }
 }
 

@@ -208,7 +208,7 @@ void appendhexbuf(bufout *b, u8* d, size len) {
   append(b, S("0x"));
   size j = len % 2;
   for (size i = len-1; i >= 0; i--, j++) {
-    if (j % 2 == 0) {
+    if ((j % 2 == 0) && (i < len-1)) {
       append(b, S("."));
     }
     appendhex(b, d[i]);

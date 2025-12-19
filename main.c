@@ -113,7 +113,7 @@ typedef struct cueframe {
 
 void osfail(void);
 b32  oswrite(i32, u8 *, i32);
-i32  osreadstdin(u8 *, i32);
+i32  osread(i32, u8 *, i32);
 void *osreserve(size);
 i32  oscommit(void *, size);
 void *oscopy(void *, void *, size);
@@ -816,7 +816,7 @@ i32 cuemain() {
   size out = 0;
   size len = 0;
   u8 *d = new(&a, u8, 1<<16);
-  while ((out = osreadstdin(d + len, 1<<16)) > 0){
+  while ((out = osread(0, d + len, 1<<16)) > 0){
     len += out;
     new(&a, u8, 1<<16);
   }
@@ -851,17 +851,17 @@ void osfail(void){
   ExitProcess(1);
 }
 
-i32 osreadstdin(u8 *buf, i32 cap) {
-  handle stdin = GetStdHandle(-10);
+i32 osread(i32 fd, u8 *buf, i32 cap) {
+  handle h = GetStdHandle(-10 - fd);
   u32 len;
-  ReadFile(stdin, buf, cap, &len, 0);
+  ReadFile(h, buf, cap, &len, 0);
   return len;
 }
 
 i32 oswrite(i32 fd, u8 *buf, i32 len) {
-  handle stdout = GetStdHandle(-10 - fd);
+  handle h = GetStdHandle(-10 - fd);
   u32 written;
-  WriteFile(stdout, buf, len, &written, 0);
+  WriteFile(h, buf, len, &written, 0);
   return (i32)written;
 }
 
@@ -914,8 +914,8 @@ void osfail(void) {
   _exit(1);
 }
 
-i32 osreadstdin(u8 *buf, i32 cap) {
-  return (i32)read(0, buf, cap);
+i32 osread(i32 fd, u8 *buf, i32 cap) {
+  return (i32)read(fd, buf, cap);
 }
 
 i32 oswrite(i32 fd, u8 *buf, i32 len) {
